@@ -79,7 +79,7 @@ class Trainer(nn.Module):
 
         # Distances to sample at for each ray. First uniform sampling, then conducts importance sampling later.
         sample_dist = 2.0 / self.n_samples                      # Assuming the region of interest is a unit sphere
-        z_vals = torch.linspace(0.0, 1.0, self.n_samples)
+        z_vals = torch.linspace(0.0, 1.0, self.n_samples).to(self.device)
         z_vals = near + (far - near) * z_vals[None, :]
         
         # Add noise to sampling distances if perturb > 0. If overwritten, use the overwriting value
@@ -87,12 +87,12 @@ class Trainer(nn.Module):
         if perturb_overwrite >= 0:
             perturb = perturb_overwrite
         if perturb > 0:
-            t_rand = (torch.rand([B, 1]) - 0.5)
+            t_rand = (torch.rand([B, 1]) - 0.5).to(self.device)
             z_vals = z_vals + t_rand * 2.0 / self.n_samples
 
         bg_alpha, bg_sampled_color= None, None
 
-        points = ray_orig[:, None, :] + ray_dir[:, None, :] * z_vals[..., :, None].to(self.device)
+        points = ray_orig[:, None, :] + ray_dir[:, None, :] * z_vals[..., :, None]
 
         # print("Points shape:", points.shape)  torch.Size([512, 64, 3])
         # print("Z vals shape:", z_vals.shape)  torch.Size([512, 64])
@@ -217,12 +217,12 @@ class Trainer(nn.Module):
         ray_orig = data['rays'][..., :3].to(self.device)
         ray_dir = data['rays'][..., 3:].to(self.device)
         img_gts = data['imgs'].to(self.device)
-        mask = data['masks']
+        mask = data['masks'].to(self.device)
 
         full_imgs = data['full_imgs'].to(self.device)
         ref_poses = data['ref_poses']
 
-        bg_rgb = torch.zeros([1, 3]).type(torch.float32)
+        bg_rgb = torch.zeros([1, 3]).type(torch.float32).to(self.device)
 
         self.optimizer.zero_grad()
 

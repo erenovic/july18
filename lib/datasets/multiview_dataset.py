@@ -137,11 +137,11 @@ class MultiviewDataset(Dataset):
         c2ws = torch.zeros((self.data['down_imgs'].shape[0], 4, 4))
         affine_mats = torch.zeros((self.data['down_imgs'].shape[0], 4, 4))
         for i, (k, v) in enumerate(self.data['cameras'].items()):
-            print(v)
+            # print(v)
             extr, intr = v.parameters()
 
-            print(extr)
-            print(intr)
+            # print(extr)
+            # print(intr)
 
             if i == 0:
                 w2c_ref = extr.reshape(4, 4)

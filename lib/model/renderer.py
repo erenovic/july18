@@ -36,7 +36,7 @@ def sample_pdf(bins, weights, n_samples, det=False):
         u = torch.rand(list(cdf.shape[:-1]) + [n_samples])
 
     # Invert CDF
-    u = u.contiguous()
+    u = u.contiguous().to(cdf.device)
     inds = torch.searchsorted(cdf, u, right=True)
     below = torch.max(torch.zeros_like(inds - 1), inds - 1)
     above = torch.min((cdf.shape[-1] - 1) * torch.ones_like(inds), inds)
@@ -102,8 +102,6 @@ class Renderer(nn.Module):
             features, ref_poses['partial_vol_origin'].to(features.device), 
             ref_poses['proj_mats'].to(features.device), img_size
         )
-
-        breakpoint()
 
         B = len(rays_o)
 
@@ -195,7 +193,7 @@ class Renderer(nn.Module):
         # |     \/
         # |
         # ----------------------------------------------------------------------------------------------------------
-        prev_cos_val = torch.cat([torch.zeros([batch_size, 1]), cos_val[:, :-1]], dim=-1)
+        prev_cos_val = torch.cat([torch.zeros([batch_size, 1]).to(rays_o.device), cos_val[:, :-1]], dim=-1)
         cos_val = torch.stack([prev_cos_val, cos_val], dim=-1)
         cos_val, _ = torch.min(cos_val, dim=-1, keepdim=False)
         cos_val = cos_val.clip(-1e3, 0.0) * inside_sphere
@@ -207,7 +205,7 @@ class Renderer(nn.Module):
         next_cdf = torch.sigmoid(next_esti_sdf * inv_s)
         alpha = (prev_cdf - next_cdf + 1e-5) / (prev_cdf + 1e-5)
         weights = alpha * torch.cumprod(
-            torch.cat([torch.ones([batch_size, 1]), 1. - alpha + 1e-7], -1), -1)[:, :-1]
+            torch.cat([torch.ones([batch_size, 1]).to(rays_o.device), 1. - alpha + 1e-7], -1), -1)[:, :-1]
 
         z_samples = sample_pdf(z_vals, weights, n_importance, det=True).detach()
         return z_samples
@@ -238,7 +236,7 @@ class Renderer(nn.Module):
 
         # Section length for each consequtive distance along rays
         dists = z_vals[..., 1:] - z_vals[..., :-1]
-        dists = torch.cat([dists, torch.Tensor([sample_dist]).expand(dists[..., :1].shape)], -1)
+        dists = torch.cat([dists, torch.Tensor([sample_dist]).expand(dists[..., :1].shape).to(z_vals.device)], -1)
         mid_z_vals = z_vals + dists * 0.5
 
         # Section midpoints are the points to consider for SDF
@@ -258,7 +256,7 @@ class Renderer(nn.Module):
         # Get color values for points
         sampled_color = self.color_net(pts, gradients, dirs, feature_vector).reshape(B, N, 3)
 
-        inv_s = self.var_net(torch.zeros([1, 3]))[:, :1].clip(1e-6, 1e6)           # Single parameter
+        inv_s = self.var_net(torch.zeros([1, 3]).to(rays_o.device))[:, :1].clip(1e-6, 1e6)           # Single parameter
         inv_s = inv_s.expand(B * N, 1)
 
         true_cos = (dirs * gradients).sum(-1, keepdim=True)
@@ -293,7 +291,7 @@ class Renderer(nn.Module):
         #                     background_sampled_color[:, :n_samples] * (1.0 - inside_sphere)[:, :, None]
         #     sampled_color = torch.cat([sampled_color, background_sampled_color[:, n_samples:]], dim=1)
 
-        weights = alpha * torch.cumprod(torch.cat([torch.ones([B, 1]), 1. - alpha + 1e-7], -1), -1)[:, :-1]
+        weights = alpha * torch.cumprod(torch.cat([torch.ones([B, 1]).to(rays_o.device), 1. - alpha + 1e-7], -1), -1)[:, :-1]
         weights_sum = weights.sum(dim=-1, keepdim=True)
 
         color = (sampled_color * weights[:, :, None]).sum(dim=1)
@@ -474,8 +472,9 @@ class Renderer(nn.Module):
         )
         feat = self.sparse_costreg_net(sparse_feat).features
 
-        dense_volume, valid_mask_volume = self.sparse_to_dense_volume(up_coords[:, 1:], feat, self.vol_dims, interval,
-                                                                      device=None)  # [1, C/1, X, Y, Z]
+        dense_volume, valid_mask_volume = self.sparse_to_dense_volume(
+            up_coords[:, 1:], feat, self.vol_dims, interval, device=None
+        )  # [1, C/1, X, Y, Z]
 
         outputs['dense_volume'] = dense_volume
         outputs['valid_mask_volume'] = valid_mask_volume

@@ -12,4 +12,4 @@ class SingleVarianceNetwork(nn.Module):
         self.variance = nn.Parameter(torch.tensor(config["init_val"]))
 
     def forward(self, x):
-        return torch.ones([len(x), 1]) * torch.exp(self.variance * 10.0)
+        return torch.ones([len(x), 1]).to(x.device) * torch.exp(self.variance * 10.0)

@@ -99,3 +99,11 @@ def back_project_sparse_type(coords, origin, voxel_size, feats, KRcam,
             return feature_volume_all, mask_volume_all, im_z
 
     return feature_volume_all, mask_volume_all
+
+
+def sparse_to_dense_channel(locs, values, dim, c, default_val, device):
+    locs = locs.to(torch.int64)
+    dense = torch.full([dim[0], dim[1], dim[2], c], float(default_val), device=device)
+    if locs.shape[0] > 0:
+        dense[locs[:, 0], locs[:, 1], locs[:, 2]] = values
+    return dense

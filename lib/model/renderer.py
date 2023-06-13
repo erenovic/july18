@@ -12,9 +12,13 @@ from .variance_net import SingleVarianceNetwork
 from .color_net import ColorNetwork
 from .feature_net import ConvBnReLU, FeatureNet
 from .sparse_conv_net import SparseCostRegNet
-from .sparseconvnet import SparseConvNetTensor
+# from .sparseconvnet import SparseConvNetTensor
 
-from .utils import generate_grid, back_project_sparse_type
+from spconv.pytorch import SparseConvTensor
+
+from .utils import generate_grid, back_project_sparse_type, sparse_to_dense_channel
+
+CUDA_LAUNCH_BLOCKING=1
 
 
 def sample_pdf(bins, weights, n_samples, det=False):
@@ -72,9 +76,9 @@ class Renderer(nn.Module):
 
         # Use fused pyramid feature maps are very important
         self.compress_layer = ConvBnReLU(
-            ch_in=32, ch_out=16, kernel=3, stride=1, padding=1
+            ch_in=56, ch_out=16, kernel=3, stride=1, padding=1
         )
-        self.sparse_costreg_net = SparseCostRegNet(d_in=16, d_out=8)
+        self.sparse_costreg_net = SparseCostRegNet(d_in=32, d_out=8)
 
         self.register_buffer(
             'vol_dims', 
@@ -98,7 +102,7 @@ class Renderer(nn.Module):
             features, ref_poses['partial_vol_origin'].to(features.device), 
             ref_poses['proj_mats'].to(features.device), img_size
         )
-        
+
         breakpoint()
 
         B = len(rays_o)
@@ -356,6 +360,42 @@ class Renderer(nn.Module):
         del volume_sum, volume_sq_sum, counts
 
         return costvar_mean
+    
+
+    def sparse_to_dense_volume(self, coords, feature, vol_dims, interval, device=None):
+        """
+        convert the sparse volume into dense volume to enable trilinear sampling
+        to save GPU memory;
+        :param coords: [num_pts, 3]
+        :param feature: [num_pts, C]
+        :param vol_dims: [3]  dX, dY, dZ
+        :param interval:
+        :return:
+        """
+
+        # * assume batch size is 1
+        if device is None:
+            device = feature.device
+
+        coords_int = (coords / interval).to(torch.int64)
+        vol_dims = (vol_dims / interval).to(torch.int64)
+
+        # - if stored in CPU, too slow
+        dense_volume = sparse_to_dense_channel(
+            coords_int.to(device), feature.to(device), vol_dims.to(device),
+            feature.shape[1], 0, device)  # [X, Y, Z, C]
+
+        valid_mask_volume = sparse_to_dense_channel(
+            coords_int.to(device),
+            torch.ones([feature.shape[0], 1]).to(feature.device),
+            vol_dims.to(device),
+            1, 0, device)  # [X, Y, Z, 1]
+
+        dense_volume = dense_volume.permute(3, 0, 1, 2).contiguous().unsqueeze(0)  # [1, C, X, Y, Z]
+        valid_mask_volume = valid_mask_volume.permute(3, 0, 1, 2).contiguous().unsqueeze(0)  # [1, 1, X, Y, Z]
+
+        return dense_volume, valid_mask_volume
+
 
 
     def compute_volume(self, feature_maps, partial_vol_origin, 
@@ -422,22 +462,24 @@ class Renderer(nn.Module):
         # batch index is in the last position
         r_coords = up_coords[:, [1, 2, 3, 0]]
 
-        print(r_coords.shape)
-        print('HERE!')
-        breakpoint()
-
         # sparse_feat = SparseTensor(feat, r_coords.to(
         #     torch.int32))  # - directly use sparse tensor to avoid point2voxel operations
-        sparse_feat = SparseConvNetTensor(feat, metadata=None, spatial_size=None)
+        # sparse_feat = SparseConvNetTensor(feat, metadata=None, spatial_size=None)
 
-        feat = self.sparse_costreg_net(sparse_feat)
+        sparse_feat = SparseConvTensor(
+            features=feat,
+            indices=r_coords.to(torch.int32),
+            spatial_shape=self.vol_dims,
+            batch_size=1
+        )
+        feat = self.sparse_costreg_net(sparse_feat).features
 
         dense_volume, valid_mask_volume = self.sparse_to_dense_volume(up_coords[:, 1:], feat, self.vol_dims, interval,
                                                                       device=None)  # [1, C/1, X, Y, Z]
 
-        outputs['dense_volume_scale%d' % self.lod] = dense_volume
-        outputs['valid_mask_volume_scale%d' % self.lod] = valid_mask_volume
-        outputs['visible_mask_scale%d' % self.lod] = valid_mask_volume
-        outputs['coords_scale%d' % self.lod] = generate_grid(self.vol_dims, interval).to(device)
+        outputs['dense_volume'] = dense_volume
+        outputs['valid_mask_volume'] = valid_mask_volume
+        outputs['visible_mask'] = valid_mask_volume
+        outputs['coords'] = generate_grid(self.vol_dims, interval).to(device)
 
         return outputs

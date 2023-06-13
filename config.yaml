@@ -1,0 +1,87 @@
+global:
+  save_root: './checkpoints'
+  exp_name: 'mp-2023'
+
+
+dataset:
+  data_root: 'data/public'
+  num_rays_per_img: 512
+  
+optimizer:
+  lr: 0.001
+  beta1: 0.5
+  beta2: 0.999
+
+train:
+  epochs: 5000
+  batch_size: 1
+  workers: 0
+  save_every: 100
+  log_every: 100
+
+  mask_weight: 0.1
+  igr_weight: 0.1
+
+sampling:
+  num_pts_per_ray: 128
+  near: 1.0
+  far: 3.0
+
+model:
+  renderer:
+    n_samples: 64
+    n_importance: 64
+    n_outside: 0
+    up_sample_steps: 4
+    perturb: 1.0
+
+  sdf_net:
+    d_in: 3
+    d_out: 129
+    d_hidden: 128
+    n_layers: 8
+    skip_in: [4]
+    multires: 6
+    bias: 0.5
+    scale: 1.0
+    weight_norm: True
+
+    pos_encode:
+      num_freq: 6
+      max_freq_log2: 5
+      log_sampling: True
+      include_input: True
+      input_dim: 3
+
+
+  var_net:
+    init_val: 0.3
+
+  color_net:
+    d_feature: 128
+    d_in: 9
+    d_out: 3
+    d_hidden: 128
+    n_layers: 4
+    weight_norm: True
+    multires_view: 4
+    squeeze_out: True
+
+    pos_encode:
+      num_freq: 4
+      max_freq_log2: 3
+      log_sampling: True
+      include_input: True
+      input_dim: 3
+
+validation:
+  valid_every: 100
+  mip: 2
+  sdf_thres: 0.0
+  chunk_size: 10240
+  num_pts_per_ray_render: 128
+  save_img: False
+
+wandb:
+  wandb: False
+  wandb_name: 'mp_test'

@@ -1,0 +1,10 @@
+data/
+
+__pycache__/
+**/__pycache__/
+
+checkpoints/mp-2023/20230427-052046/
+deneme.ipynb
+deneme.py
+
+train_15440332.log

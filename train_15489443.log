@@ -1,0 +1,139 @@
+
+The following have been reloaded with a version change:
+  1) gcc/4.8.5 => gcc/8.2.0
+
+2023-04-27 17:54:57,187|    INFO| Info: 
+```{ 'dataset': { 'bg_color': 'white',
+               'data_root': 'data/public',
+               'num_rays_per_img': 512},
+  'global': { 'config': 'config.yaml',
+              'exp_name': 'mp-2023',
+              'log_level': 20,
+              'save_root': './checkpoints',
+              'seed': 123},
+  'model': { 'color_net': { 'd_feature': 128,
+                            'd_hidden': 128,
+                            'd_in': 9,
+                            'd_out': 3,
+                            'multires_view': 4,
+                            'n_layers': 4,
+                            'pos_encode': { 'include_input': True,
+                                            'input_dim': 3,
+                                            'log_sampling': True,
+                                            'max_freq_log2': 3,
+                                            'num_freq': 4},
+                            'squeeze_out': True,
+                            'weight_norm': True},
+             'n_importance': 64,
+             'n_outside': 0,
+             'n_samples': 64,
+             'perturb': 2,
+             'renderer': { 'n_importance': 64,
+                           'n_outside': 0,
+                           'n_samples': 64,
+                           'perturb': 1.0,
+                           'up_sample_steps': 4},
+             'sdf_net': { 'bias': 0.5,
+                          'd_hidden': 128,
+                          'd_in': 3,
+                          'd_out': 129,
+                          'multires': 6,
+                          'n_layers': 8,
+                          'pos_encode': { 'include_input': True,
+                                          'input_dim': 3,
+                                          'log_sampling': True,
+                                          'max_freq_log2': 5,
+                                          'num_freq': 6},
+                          'scale': 1.0,
+                          'skip_in': [4],
+                          'weight_norm': True},
+             'up_sample_steps': 4,
+             'var_net': {'init_val': 0.3}},
+  'optimizer': {'beta1': 0.5, 'beta2': 0.999, 'lr': 0.001, 'weight_decay': 0},
+  'optional arguments': {'help': None},
+  'positional arguments': {},
+  'sampling': {'far': 3.0, 'near': 1.0, 'num_pts_per_ray': 128},
+  'train': { 'batch_size': 1,
+             'epochs': 5000,
+             'igr_weight': 0.1,
+             'log_every': 100,
+             'mask_weight': 0.1,
+             'save_every': 100,
+             'workers': 4},
+  'validation': { 'chunk_size': 10240,
+                  'mip': 2,
+                  'num_pts_per_ray_render': 128,
+                  'save_img': False,
+                  'sdf_thres': 0.0,
+                  'valid_every': 100},
+  'wandb': {'wandb': False, 'wandb_id': None, 'wandb_name': 'mp_test'}}```
+loading data:   0%|          | 0/10 [00:00<?, ?it/s]loading data:  10%|█         | 1/10 [00:00<00:02,  3.49it/s]loading data:  20%|██        | 2/10 [00:00<00:01,  5.55it/s]loading data:  30%|███       | 3/10 [00:00<00:01,  6.68it/s]loading data:  50%|█████     | 5/10 [00:00<00:00,  8.33it/s]loading data:  60%|██████    | 6/10 [00:00<00:00,  8.57it/s]loading data:  70%|███████   | 7/10 [00:00<00:00,  8.78it/s]loading data:  90%|█████████ | 9/10 [00:01<00:00,  9.06it/s]loading data: 100%|██████████| 10/10 [00:01<00:00,  9.04it/s]loading data: 100%|██████████| 10/10 [00:01<00:00,  8.06it/s]
+generating rays:   0%|          | 0/10 [00:00<?, ?it/s]generating rays:  10%|█         | 1/10 [00:00<00:05,  1.53it/s]generating rays:  20%|██        | 2/10 [00:01<00:04,  1.69it/s]generating rays:  30%|███       | 3/10 [00:01<00:03,  1.79it/s]generating rays:  40%|████      | 4/10 [00:02<00:03,  1.80it/s]generating rays:  50%|█████     | 5/10 [00:02<00:02,  1.93it/s]generating rays:  60%|██████    | 6/10 [00:03<00:02,  1.91it/s]generating rays:  70%|███████   | 7/10 [00:03<00:01,  1.93it/s]generating rays:  80%|████████  | 8/10 [00:04<00:01,  1.89it/s]generating rays:  90%|█████████ | 9/10 [00:04<00:00,  1.90it/s]generating rays: 100%|██████████| 10/10 [00:05<00:00,  1.90it/s]generating rays: 100%|██████████| 10/10 [00:05<00:00,  1.87it/s]
+loading data:   0%|          | 0/5 [00:00<?, ?it/s]loading data:  40%|████      | 2/5 [00:00<00:00, 11.09it/s]loading data:  80%|████████  | 4/5 [00:00<00:00, 12.14it/s]loading data: 100%|██████████| 5/5 [00:00<00:00, 12.01it/s]
+generating rays:   0%|          | 0/5 [00:00<?, ?it/s]generating rays:  80%|████████  | 4/5 [00:00<00:00, 33.51it/s]generating rays: 100%|██████████| 5/5 [00:00<00:00, 34.39it/s]2023-04-27 17:55:07,095|    INFO| Watching
+
+2023-04-27 17:55:22,648|    INFO| STEP 0 - EPOCH 0/5000 | total loss: 1.132E+00 | rgb loss: 1.090E+00
+2023-04-27 17:56:42,683|    INFO| Saving model checkpoint to: ./checkpoints/mp-2023/20230427-175457/model-0.pth
+2023-04-27 17:56:42,722|    INFO| Beginning validation...
+2023-04-27 17:56:42,722|    INFO| Loaded validation dataset with 5 images at resolution 256x256
+2023-04-27 17:56:42,722|    INFO| Saving reconstruction result to ./checkpoints/mp-2023/20230427-175457/mesh
+/cluster/home/ecetin/mp23_env/lib64/python3.8/site-packages/torch/functional.py:478: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at  ../aten/src/ATen/native/TensorShape.cpp:2894.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+2023-04-27 18:11:18,187|    INFO| STEP 100 - EPOCH 10/5000 | total loss: 5.089E-01 | rgb loss: 4.268E-01
+2023-04-27 18:22:24,969|    INFO| STEP 200 - EPOCH 20/5000 | total loss: 3.060E-01 | rgb loss: 2.676E-01
+2023-04-27 18:33:47,243|    INFO| STEP 300 - EPOCH 30/5000 | total loss: 2.651E-01 | rgb loss: 2.278E-01
+2023-04-27 18:45:13,712|    INFO| STEP 400 - EPOCH 40/5000 | total loss: 2.308E-01 | rgb loss: 1.998E-01
+2023-04-27 18:57:27,765|    INFO| STEP 500 - EPOCH 50/5000 | total loss: 2.286E-01 | rgb loss: 1.967E-01
+2023-04-27 19:11:58,511|    INFO| STEP 600 - EPOCH 60/5000 | total loss: 1.995E-01 | rgb loss: 1.724E-01
+2023-04-27 19:25:13,402|    INFO| STEP 700 - EPOCH 70/5000 | total loss: 1.830E-01 | rgb loss: 1.602E-01
+2023-04-27 19:39:32,370|    INFO| STEP 800 - EPOCH 80/5000 | total loss: 1.695E-01 | rgb loss: 1.479E-01
+2023-04-27 19:55:33,022|    INFO| STEP 900 - EPOCH 90/5000 | total loss: 1.678E-01 | rgb loss: 1.458E-01
+2023-04-27 20:11:54,061|    INFO| STEP 1000 - EPOCH 100/5000 | total loss: 1.533E-01 | rgb loss: 1.349E-01
+2023-04-27 20:13:40,583|    INFO| Saving model checkpoint to: ./checkpoints/mp-2023/20230427-175457/model-100.pth
+2023-04-27 20:13:40,638|    INFO| Beginning validation...
+2023-04-27 20:13:40,638|    INFO| Loaded validation dataset with 5 images at resolution 256x256
+2023-04-27 20:13:40,639|    INFO| Saving reconstruction result to ./checkpoints/mp-2023/20230427-175457/mesh
+2023-04-27 20:35:39,817|    INFO| STEP 1100 - EPOCH 110/5000 | total loss: 1.482E-01 | rgb loss: 1.308E-01
+2023-04-27 20:56:55,690|    INFO| STEP 1200 - EPOCH 120/5000 | total loss: 1.487E-01 | rgb loss: 1.298E-01
+2023-04-27 21:16:01,591|    INFO| STEP 1300 - EPOCH 130/5000 | total loss: 1.492E-01 | rgb loss: 1.298E-01
+2023-04-27 21:37:58,545|    INFO| STEP 1400 - EPOCH 140/5000 | total loss: 1.400E-01 | rgb loss: 1.218E-01
+2023-04-27 21:59:26,629|    INFO| STEP 1500 - EPOCH 150/5000 | total loss: 1.287E-01 | rgb loss: 1.140E-01
+2023-04-27 22:24:14,634|    INFO| STEP 1600 - EPOCH 160/5000 | total loss: 1.337E-01 | rgb loss: 1.188E-01
+2023-04-27 22:50:01,580|    INFO| STEP 1700 - EPOCH 170/5000 | total loss: 1.253E-01 | rgb loss: 1.121E-01
+2023-04-27 23:17:12,088|    INFO| STEP 1800 - EPOCH 180/5000 | total loss: 1.246E-01 | rgb loss: 1.089E-01
+2023-04-27 23:46:01,012|    INFO| STEP 1900 - EPOCH 190/5000 | total loss: 1.210E-01 | rgb loss: 1.074E-01
+2023-04-28 00:13:22,628|    INFO| STEP 2000 - EPOCH 200/5000 | total loss: 1.307E-01 | rgb loss: 1.142E-01
+2023-04-28 00:15:42,582|    INFO| Saving model checkpoint to: ./checkpoints/mp-2023/20230427-175457/model-200.pth
+2023-04-28 00:15:42,630|    INFO| Beginning validation...
+2023-04-28 00:15:42,630|    INFO| Loaded validation dataset with 5 images at resolution 256x256
+2023-04-28 00:15:42,630|    INFO| Saving reconstruction result to ./checkpoints/mp-2023/20230427-175457/mesh
+2023-04-28 00:55:48,533|    INFO| STEP 2100 - EPOCH 210/5000 | total loss: 1.187E-01 | rgb loss: 1.059E-01
+2023-04-28 01:28:17,451|    INFO| STEP 2200 - EPOCH 220/5000 | total loss: 1.218E-01 | rgb loss: 1.069E-01
+2023-04-28 02:06:14,638|    INFO| STEP 2300 - EPOCH 230/5000 | total loss: 1.166E-01 | rgb loss: 1.032E-01
+2023-04-28 02:42:27,342|    INFO| STEP 2400 - EPOCH 240/5000 | total loss: 1.116E-01 | rgb loss: 1.004E-01
+2023-04-28 03:21:00,652|    INFO| STEP 2500 - EPOCH 250/5000 | total loss: 1.094E-01 | rgb loss: 9.769E-02
+2023-04-28 04:00:06,770|    INFO| STEP 2600 - EPOCH 260/5000 | total loss: 1.126E-01 | rgb loss: 9.902E-02
+2023-04-28 04:42:14,972|    INFO| STEP 2700 - EPOCH 270/5000 | total loss: 1.090E-01 | rgb loss: 9.705E-02
+2023-04-28 05:22:04,800|    INFO| STEP 2800 - EPOCH 280/5000 | total loss: 1.140E-01 | rgb loss: 1.007E-01
+2023-04-28 06:04:35,984|    INFO| STEP 2900 - EPOCH 290/5000 | total loss: 1.132E-01 | rgb loss: 9.988E-02
+2023-04-28 06:51:03,801|    INFO| STEP 3000 - EPOCH 300/5000 | total loss: 1.084E-01 | rgb loss: 9.705E-02
+2023-04-28 06:55:29,057|    INFO| Saving model checkpoint to: ./checkpoints/mp-2023/20230427-175457/model-300.pth
+2023-04-28 06:55:29,112|    INFO| Beginning validation...
+2023-04-28 06:55:29,112|    INFO| Loaded validation dataset with 5 images at resolution 256x256
+2023-04-28 06:55:29,113|    INFO| Saving reconstruction result to ./checkpoints/mp-2023/20230427-175457/mesh
+2023-04-28 07:50:24,514|    INFO| STEP 3100 - EPOCH 310/5000 | total loss: 1.198E-01 | rgb loss: 1.040E-01
+2023-04-28 08:42:27,028|    INFO| STEP 3200 - EPOCH 320/5000 | total loss: 1.016E-01 | rgb loss: 9.069E-02
+2023-04-28 09:29:27,649|    INFO| STEP 3300 - EPOCH 330/5000 | total loss: 1.023E-01 | rgb loss: 9.173E-02
+2023-04-28 10:20:41,532|    INFO| STEP 3400 - EPOCH 340/5000 | total loss: 1.064E-01 | rgb loss: 9.462E-02
+2023-04-28 11:10:03,669|    INFO| STEP 3500 - EPOCH 350/5000 | total loss: 1.062E-01 | rgb loss: 9.356E-02
+2023-04-28 12:03:59,594|    INFO| STEP 3600 - EPOCH 360/5000 | total loss: 1.039E-01 | rgb loss: 9.189E-02
+2023-04-28 13:02:56,512|    INFO| STEP 3700 - EPOCH 370/5000 | total loss: 1.010E-01 | rgb loss: 9.043E-02
+2023-04-28 14:06:18,512|    INFO| STEP 3800 - EPOCH 380/5000 | total loss: 9.709E-02 | rgb loss: 8.724E-02
+2023-04-28 15:07:22,794|    INFO| STEP 3900 - EPOCH 390/5000 | total loss: 1.001E-01 | rgb loss: 8.991E-02
+2023-04-28 16:09:35,716|    INFO| STEP 4000 - EPOCH 400/5000 | total loss: 1.022E-01 | rgb loss: 9.065E-02
+2023-04-28 16:16:13,093|    INFO| Saving model checkpoint to: ./checkpoints/mp-2023/20230427-175457/model-400.pth
+2023-04-28 16:16:13,163|    INFO| Beginning validation...
+2023-04-28 16:16:13,164|    INFO| Loaded validation dataset with 5 images at resolution 256x256
+2023-04-28 16:16:13,164|    INFO| Saving reconstruction result to ./checkpoints/mp-2023/20230427-175457/mesh
+2023-04-28 17:27:46,926|    INFO| STEP 4100 - EPOCH 410/5000 | total loss: 9.835E-02 | rgb loss: 8.843E-02
+slurmstepd: error: *** JOB 15489443 ON eu-lo-s4-011 CANCELLED AT 2023-04-28T17:54:09 DUE TO TIME LIMIT ***

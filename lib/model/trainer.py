@@ -99,53 +99,6 @@ class Trainer(nn.Module):
 
         return points, z_vals, sample_dist
 
-    def predict_radience(self, coords):
-        """Predict radiance at the given coordinates.
-        TODO: You can adjust the network architecture according to your needs. You may also 
-        try to use additional raydirections inputs to predict the radiance.
-
-        Args:
-            coords (torch.FloatTensor): 3D coordinates of the points of shape [..., 3].
-
-        Returns:
-            rgb (torch.FloatTensor): Radiance at the given coordinates of shape [..., 3].
-            sigma (torch.FloatTensor): volume density at the given coordinates of shape [..., 1].
-
-        """
-        if len(coords.shape) == 2:
-            coords = self.pos_enc(coords)
-        else:
-            input_shape = coords.shape
-            coords = self.pos_enc(coords.view(-1, 3)).view(*input_shape[:-1], -1)
-
-        pred = self.mlp(coords)
-        rgb = torch.sigmoid(pred[..., :3])
-        sigma = torch.relu(pred[..., 3:])
-
-        return rgb, sigma
-
-    def volume_render(self, rgb, sigma, depth, deltas):
-        """Ray marching to compute the radiance at the given rays.
-        TODO: You are free to try out different neural rendering methods.
-        
-        Args:
-            rgb (torch.FloatTensor): Radiance at the sampled points of shape [B, Nr, Np, 3].
-            sigma (torch.FloatTensor): Volume density at the sampled points of shape [B, Nr, Np, 1].
-            deltas (torch.FloatTensor): Distance between the points of shape [B, Nr, Np, 1].
-        
-        Returns:
-            ray_colors (torch.FloatTensor): Radiance at the given rays of shape [B, Nr, 3].
-            weights (torch.FloatTensor): Weights of the given rays of shape [B, Nr, 1].
-
-        """
-        # Sample points along the rays
-
-        tau = sigma * deltas
-        ray_colors, ray_dapth, ray_alpha = exponential_integration(rgb, tau, depth, exclusive=True)
-
-        return ray_colors, ray_dapth, ray_alpha
-
-
     def forward(self, ray_orig, ray_dir, imgs, bg_rgb=None, ref_poses=None):
         """Forward pass of the network. 
         TODO: Adjust the neural rendering pipeline according to your needs.
@@ -157,21 +110,22 @@ class Trainer(nn.Module):
         ray_orig = ray_orig.squeeze(0)
         ray_dir = ray_dir.squeeze(0)
 
-        B, Nr = ray_orig.shape[:2]
-
-        # print(ray_orig.shape)     torch.Size([1, 512, 3])
-        # print(ray_dir.shape)      torch.Size([1, 512, 3])
-        # print(img_gts.shape)      torch.Size([1, 512, 3])
+        # print(ray_orig.shape)     torch.Size([512, 3])
+        # print(ray_dir.shape)      torch.Size([512, 3])
+        # print(img_gts.shape)      torch.Size([512, 3])
 
         # Step 1 : Sample points along the rays
         points, z_vals, sample_dist = self.sample_points(
             ray_orig, ray_dir, near=self.cfg.near, far=self.cfg.far
         )
 
-        # Step 2 : Predict radiance and volume density at the sampled points
+        # Step 2 : Compute conditional volume and mask
+        conditional_volume, conditional_volume_mask = self.renderer.get_conditional_volume(imgs, ref_poses)
+
+        # Step 3 : Predict radiance and volume density at the sampled points
         output = self.renderer(
             points, ray_orig, ray_dir, z_vals, sample_dist, 
-            imgs, bg_rgb=bg_rgb, ref_poses=ref_poses
+            bg_rgb, conditional_volume, conditional_volume_mask
         )
 
         return output
@@ -233,27 +187,39 @@ class Trainer(nn.Module):
         self.log_dict['total_iter_count'] += 1
         self.log_dict['image_count'] += ray_orig.shape[0]
 
-    def render(self, ray_orig, ray_dir):
+        # Returning conditional volume and mask for the validation and test
+        return output['conditional_volume'].detach(), output['conditional_volume_mask'].detach()
+
+    def render(self, ray_orig, ray_dir, bg_rgb=None):
         """Render a full image for evaluation.
         """
-        B, Nr = ray_orig.shape[:2]
-        coords, depth, deltas = self.sample_points(ray_orig, ray_dir, near=self.cfg.near, far=self.cfg.far,
-                                num_points=self.cfg.num_pts_per_ray_render)
-        rgb, sigma = self.predict_radience(coords)
-        ray_colors, ray_depth, ray_alpha= self.volume_render(rgb, sigma, depth, deltas)
-        
-        if self.cfg.bg_color == 'white':
-            bg = torch.ones(B, Nr, 3, device=ray_colors.device)
-            render_img = (1 - ray_alpha) * bg + ray_alpha * ray_colors
-        else:
-            render_img = ray_alpha * ray_colors
+        ray_orig = ray_orig.squeeze(0)
+        ray_dir = ray_dir.squeeze(0)
 
-        return render_img, ray_depth, ray_alpha
+        # print(ray_orig.shape)     torch.Size([1, 512, 3])
+        # print(ray_dir.shape)      torch.Size([1, 512, 3])
+        # print(img_gts.shape)      torch.Size([1, 512, 3])
+
+        # Step 1 : Sample points along the rays
+        points, z_vals, sample_dist = self.sample_points(
+            ray_orig, ray_dir, near=self.cfg.near, far=self.cfg.far
+        )
+
+        # Step 2 : Predict radiance and volume density at the sampled points
+        # Conditional volume and mask are already computed for rendering, less computation overhead
+        output = self.renderer(
+            points, ray_orig, ray_dir, z_vals, sample_dist, 
+            bg_rgb, self.renderer.conditional_volume, self.renderer.conditional_volume_mask
+        )
+        return output["color_fine"]
 
     def reconstruct_3D(self, save_dir, epoch=0, sdf_threshold=0., chunk_size=8192):
         """
         Reconstruct the 3D shape from the volume density.
         """
+
+        conditional_volume, conditional_volume_mask = \
+            self.renderer.conditional_volume, self.renderer.conditional_volume_mask
 
         # Mesh evaluation
         window_x = torch.linspace(-1., 1., steps=RES, device=self.device)
@@ -265,11 +231,9 @@ class Trainer(nn.Module):
         _points = torch.split(coord, int(chunk_size), dim=0)
         sdf_vals = []
         
-        i = 0
         for _p in _points:
-            i += 1
-            sdf_val = self.renderer.sdf_net.sdf(_p)
-            sdf_vals.append(sdf_val)
+            sdf_output = self.renderer.sdf_net.sdf(_p, conditional_volume)
+            sdf_vals.append(sdf_output['sdf_pts'].detach().cpu())
         sdf_vals = torch.cat(sdf_vals, dim=0)
 
         np_sdf_vals = sdf_vals.reshape(RES, RES, RES).cpu().numpy()
@@ -311,16 +275,19 @@ class Trainer(nn.Module):
         if not os.path.exists(self.valid_mesh_dir):
             os.makedirs(self.valid_mesh_dir)
 
-        # if save_img:
-        #     self.valid_img_dir = os.path.join(self.log_dir, "img")
-        #     log.info(f"Saving rendering result to {self.valid_img_dir}")
-        #     if not os.path.exists(self.valid_img_dir):
-        #         os.makedirs(self.valid_img_dir)
+        if save_img:
+            self.valid_img_dir = os.path.join(self.log_dir, "img")
+            log.info(f"Saving rendering result to {self.valid_img_dir}")
+            if not os.path.exists(self.valid_img_dir):
+                os.makedirs(self.valid_img_dir)
 
-        # psnr_total = 0.0
+        psnr_total = 0.0
 
-        # wandb_img = []
-        # wandb_img_gt = []
+        wandb_img = []
+        wandb_img_gt = []
+
+        # Using white background again
+        bg_rgb = torch.ones([1, 3]).to(self.device)
 
         with torch.no_grad():
             # Evaluate 3D reconstruction
@@ -329,51 +296,58 @@ class Trainer(nn.Module):
                 sdf_threshold=sdf_threshold, chunk_size=chunk_size
             )
 
-            # Evaluate 2D novel view rendering
-            # for i, data in enumerate(tqdm(loader)):
-            #     rays = data['rays'].to(self.device)          # [1, Nr, 6]
-            #     img_gt = data['imgs'].to(self.device)        # [1, Nr, 3]
-            #     mask = data['masks'].repeat(1, 1, 3).to(self.device)
+        # Evaluate 2D novel view rendering
+        for i, data in enumerate(tqdm(loader)):
+            rays = data['rays'].to(self.device)          # [1, Nr, 6]
+            img_gt = data['imgs'].to(self.device)        # [1, Nr, 3]
+            # mask = data['masks'].repeat(1, 1, 3).to(self.device)
 
-            #     _rays = torch.split(rays, int(chunk_size), dim=1)
-            #     pixels = []
-            #     for _r in _rays:
-            #         ray_orig = _r[..., :3]          # [1, chunk, 3]
-            #         ray_dir = _r[..., 3:]           # [1, chunk, 3]
-            #         ray_rgb, ray_depth, ray_alpha = self.render(ray_orig, ray_dir)
-            #         pixels.append(ray_rgb)
+            _rays = torch.split(rays, int(chunk_size), dim=1)
+            pixels = []
+            for _r in _rays:
+                ray_orig = _r[..., :3]          # [1, chunk, 3]
+                ray_dir = _r[..., 3:]           # [1, chunk, 3]
 
-            #     pixels = torch.cat(pixels, dim=1)
+                # One forward pass to calculate the color per pixel
+                ray_rgb = self.render(ray_orig, ray_dir, bg_rgb=bg_rgb).unsqueeze(0)
+                pixels.append(ray_rgb.detach())
 
-            #     psnr_total += psnr(pixels, img_gt)
+            pixels = torch.cat(pixels, dim=1)
 
-            #     img = (pixels).reshape(*img_shape, 3).cpu().numpy() * 255
-            #     gt = (img_gt).reshape(*img_shape, 3).cpu().numpy() * 255
-            #     wandb_img.append(wandb.Image(img))
-            #     wandb_img_gt.append(wandb.Image(gt))
+            psnr_total += psnr(pixels, img_gt)
 
-            #     if save_img:
-            #         Image.fromarray(gt.astype(np.uint8)).save(
-            #             os.path.join(self.valid_img_dir, "gt-{:04d}-{:03d}.png".format(epoch, i)) )
-            #         Image.fromarray(img.astype(np.uint8)).save(
-            #             os.path.join(self.valid_img_dir, "img-{:04d}-{:03d}.png".format(epoch, i)) )
+            img = (pixels).reshape(*img_shape, 3).cpu().numpy() * 255
+            gt = (img_gt).reshape(*img_shape, 3).cpu().numpy() * 255
+            wandb_img.append(wandb.Image(img))
+            wandb_img_gt.append(wandb.Image(gt))
 
-        # wandb.log({"Rendered Images": wandb_img}, step=step)
-        # wandb.log({"Ground-truth Images": wandb_img_gt}, step=step)
+            if save_img:
+                Image.fromarray(gt.astype(np.uint8)).save(
+                    os.path.join(self.valid_img_dir, "gt-{:04d}-{:03d}.png".format(epoch, i)) )
+                Image.fromarray(img.astype(np.uint8)).save(
+                    os.path.join(self.valid_img_dir, "img-{:04d}-{:03d}.png".format(epoch, i)) )
+
+        wandb.log({"Rendered Images": wandb_img}, step=step)
+        wandb.log({"Ground-truth Images": wandb_img_gt}, step=step)
                 
-        # psnr_total /= len(loader)
+        psnr_total /= len(loader)
 
-        # log_text = 'EPOCH {}/{}'.format(epoch, self.cfg.epochs)
-        # log_text += ' {} | {:.2f}'.format(f"PSNR", psnr_total)
+        log_text = 'EPOCH {}/{}'.format(epoch, self.cfg.epochs)
+        log_text += ' {} | {:.2f}'.format(f"PSNR", psnr_total)
 
-        # wandb.log({'PSNR': psnr_total, 'Epoch': epoch}, step=step)
-        # log.info(log_text)
+        wandb.log({'PSNR': psnr_total, 'Epoch': epoch}, step=step)
+        log.info(log_text)
         self.train()
 
-    def save_model(self, epoch):
+    def save_model(self, epoch, conditional_volume, conditional_volume_mask):
         """
         Save the model checkpoint.
+        TODO: Save the optimizer and lr scheduler as well!
         """
+        
+        # Saving the conditional volume and mask to prevent computation overhead!
+        self.renderer.conditional_volume = conditional_volume
+        self.renderer.conditional_volume_mask = conditional_volume_mask
 
         fname = os.path.join(self.log_dir, f'model-{epoch}.pth')
         log.info(f'Saving model checkpoint to: {fname}')

@@ -87,8 +87,9 @@ class MultiviewDataset(Dataset):
         
         self.coords = None
 
-        self.resizer = Resize(256)
-        self.down_factor = 4
+        if self.split == "train":
+            self.resizer = Resize(256)
+            self.down_factor = 4
 
         self.data = self.get_images(self.split, self.mip)
 
@@ -101,7 +102,13 @@ class MultiviewDataset(Dataset):
         if "masks" in self.data:
             self.data["masks"] = self.data["masks"].reshape(self.num_imgs, -1, 1)
 
-        self.downsample_imgs()
+        if self.split == "train":
+            self.downsample_imgs()
+        else:
+            self.data["down_imgs"] = torch.permute(
+                self.data["imgs"].reshape(self.num_imgs, *self.img_shape, 3).float(), (0, 3, 1, 2)
+            )
+        
         self.compute_camera_params()
 
     def get_images(self, split='train', mip=None):
@@ -130,34 +137,34 @@ class MultiviewDataset(Dataset):
     
     def compute_camera_params(self):
         self.data['ref_poses'] = dict()
-        all_extr = torch.zeros((self.data['down_imgs'].shape[0], 3, 4))
-        all_intr = torch.zeros((self.data['down_imgs'].shape[0], 3, 3))
-        all_near_far = torch.zeros((self.data['down_imgs'].shape[0], 2))
-        w2cs = torch.zeros((self.data['down_imgs'].shape[0], 4, 4))
-        c2ws = torch.zeros((self.data['down_imgs'].shape[0], 4, 4))
-        affine_mats = torch.zeros((self.data['down_imgs'].shape[0], 4, 4))
+        # all_extr = torch.zeros((self.num_imgs, 3, 4))
+        # all_intr = torch.zeros((self.num_imgs, 3, 3))
+        all_near_far = torch.zeros((self.num_imgs, 2))
+        # w2cs = torch.zeros((self.num_imgs, 4, 4))
+        # c2ws = torch.zeros((self.num_imgs, 4, 4))
+        affine_mats = torch.zeros((self.num_imgs, 4, 4))
         for i, (k, v) in enumerate(self.data['cameras'].items()):
-            # print(v)
-            extr, intr = v.parameters()
 
-            # print(extr)
-            # print(intr)
-
-            if i == 0:
-                w2c_ref = extr.reshape(4, 4)
-                w2c_ref_inv = np.linalg.inv(w2c_ref)
-
-            extr = extr.reshape(4, 4)[:3, :]
-            intr = torch.tensor([[intr[0][2], 0, intr[0][0]],
-                                 [0, intr[0][3], intr[0][1]],
-                                 [0, 0, 1]])
-            intr[:2] *= self.down_factor
-            all_extr[i] = extr
-            all_intr[i] = intr
-            # Default values from load_nerf_standard_data()
             all_near_far[i] = torch.tensor([0., 6.])
 
+            if self.split == "train":
+                extr = v.extrinsics.view_matrix()
+                intr = v.intrinsics.projection_matrix()
 
+                # extr = extr.reshape(4, 4)[:3, :]
+                # intr = torch.tensor([[intr[0][2], 0, intr[0][0]],
+                #                      [0, intr[0][3], intr[0][1]],
+                #                      [0, 0, 1]])
+                intr[0, :, :2] /= self.down_factor
+
+                affine_mats[i] = torch.bmm(intr, extr)[0]
+            else:
+                affine_mats[i] = v.view_projection_matrix()[0]
+                
+            # all_extr[i] = extr
+            # all_intr[i] = intr
+            # Default values from load_nerf_standard_data()
+            
             ###########################################################
             # PART RELEVANT FOR SPARSENEUS
             # w2c = extr @ w2c_ref_inv
@@ -171,18 +178,18 @@ class MultiviewDataset(Dataset):
 
             # w2cs[i] = torch.tensor(w2c)
             # c2ws[i] = torch.tensor(c2w)
-            w2c = extr
-            affine_mat = np.eye(4)
-            affine_mat[:3, :4] = intr[:3, :3] @ w2c[:3, :4]
-            affine_mats[i] = v.parameters()[0].reshape(4, 4)
+            # w2c = extr
+            # affine_mat = np.eye(4)
+            # affine_mat[:3, :4] = intr[:3, :3] @ w2c[:3, :4]
+            # affine_mats[i] = v.parameters()[0].reshape(4, 4)
             ###########################################################
             
-        self.data['ref_poses']['extrinsics'] = all_extr
-        self.data['ref_poses']['intrinsics'] = all_intr
-        self.data['ref_poses']['near_fars'] = all_near_far
+        # self.data['ref_poses']['extrinsics'] = all_extr
+        # self.data['ref_poses']['intrinsics'] = all_intr
+        # self.data['ref_poses']['near_fars'] = all_near_far
 
-        self.data['ref_poses']['w2cs'] = w2cs
-        self.data['ref_poses']['c2ws'] = c2ws
+        # self.data['ref_poses']['w2cs'] = w2cs
+        # self.data['ref_poses']['c2ws'] = c2ws
         self.data['ref_poses']['proj_mats'] = affine_mats
 
         # NOTE: Not sure if this is the right value! Based on SparseNeuS

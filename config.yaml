@@ -35,12 +35,16 @@ model:
     up_sample_steps: 4
     perturb: 1.0
 
+  costreg_net:
+    d_out: 8
+
   sdf_net:
     d_in: 3
     d_out: 129
     d_hidden: 128
-    n_layers: 8
-    skip_in: [4]
+    d_feature: 8
+    n_layers: 6
+    skip_in: [3]
     multires: 6
     bias: 0.5
     scale: 1.0
@@ -78,10 +82,10 @@ validation:
   valid_every: 100
   mip: 2
   sdf_thres: 0.0
-  chunk_size: 10240
+  chunk_size: 512
   num_pts_per_ray_render: 128
-  save_img: False
+  save_img: True
 
 wandb:
-  wandb: False
-  wandb_name: 'mp_test'
+  wandb: True
+  wandb_name: 'mp'

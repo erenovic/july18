@@ -93,6 +93,7 @@ def parse_options():
     model.add_argument('--up_sample_steps', type=int, default=4)
     model.add_argument('--perturb', type=int, default=2)
     model.add_argument('--renderer', type=dict, default=dict())
+    model.add_argument('--costreg_net', type=dict, default=dict())
     model.add_argument('--sdf_net', type=dict, default=dict())
     model.add_argument('--var_net', type=dict, default=dict())
     model.add_argument('--color_net', type=dict, default=dict())

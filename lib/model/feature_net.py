@@ -28,12 +28,10 @@ class FeatureNet(nn.Module):
 
         self.conv1 = nn.Sequential(
             ConvBnReLU(8, 16, 5, 2, 2),
-            ConvBnReLU(16, 16, 3, 1, 1),
             ConvBnReLU(16, 16, 3, 1, 1))
 
         self.conv2 = nn.Sequential(
             ConvBnReLU(16, 32, 5, 2, 2),
-            ConvBnReLU(32, 32, 3, 1, 1),
             ConvBnReLU(32, 32, 3, 1, 1))
 
         self.toplayer = nn.Conv2d(32, 32, 1)

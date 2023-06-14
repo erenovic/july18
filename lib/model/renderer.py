@@ -78,7 +78,7 @@ class Renderer(nn.Module):
         self.compress_layer = ConvBnReLU(
             ch_in=56, ch_out=16, kernel=3, stride=1, padding=1
         )
-        self.sparse_costreg_net = SparseCostRegNet(d_in=32, d_out=8)
+        self.sparse_costreg_net = SparseCostRegNet(d_in=32, d_out=config.costreg_net["d_out"])
 
         self.register_buffer(
             'vol_dims', 
@@ -87,23 +87,19 @@ class Renderer(nn.Module):
         )
         self.voxel_size = 2 / (self.vol_dims[0] - 1)
 
-    def forward(self, pts, rays_o, rays_d, z_vals, sample_dist, imgs=None,
-                bg_rgb=None, ref_poses=None, cos_anneal_ratio=0.0):
+        # Save the conditional volume and the mask for validation and test
+        self.register_buffer('conditional_volume', None)
+        self.register_buffer('conditional_volume_mask', None)
+
+
+    def forward(self, pts, rays_o, rays_d, z_vals, sample_dist, bg_rgb=None, 
+                conditional_volume=None, conditional_volume_mask=None, cos_anneal_ratio=0.0):
         '''
         Rendering along the rays provided.
         :rays_o: origin point of the rays,
         :rays_d: direction vector of rays,
         '''
-        
-        features = self.compute_features(imgs)
-
-        img_size = imgs.shape[-2:]
-        conditional_volume = self.compute_volume(
-            features, ref_poses['partial_vol_origin'].to(features.device), 
-            ref_poses['proj_mats'].to(features.device), img_size
-        )
-
-        B = len(rays_o)
+        N_rays = len(rays_o)
 
         bg_alpha, bg_sampled_color= None, None
 
@@ -111,7 +107,8 @@ class Renderer(nn.Module):
         if self.n_importance > 0:
             with torch.no_grad():
                 # Calculate the SDF values for each point along the rays
-                sdf = self.sdf_net.sdf(pts.reshape(-1, 3)).reshape(B, self.n_samples)
+                sdf_outputs = self.sdf_net.sdf(pts.reshape(-1, 3), conditional_volume)
+                sdf = sdf_outputs['sdf_pts'].reshape(N_rays, self.n_samples)
 
                 # Iterative importance sampling steps
                 for i in range(self.up_sample_steps):
@@ -120,7 +117,8 @@ class Renderer(nn.Module):
                         rays_o, rays_d, z_vals, sdf, self.n_importance // self.up_sample_steps, 64 * 2**i
                     )
                     z_vals, sdf = self.cat_z_vals(
-                        rays_o, rays_d, z_vals, new_z_vals, sdf, last=(i + 1 == self.up_sample_steps)
+                        rays_o, rays_d, z_vals, new_z_vals, sdf, 
+                        conditional_volume, last=(i + 1 == self.up_sample_steps)
                     )
 
             n_samples = self.n_samples + self.n_importance
@@ -138,6 +136,7 @@ class Renderer(nn.Module):
         # Render core
         ret_fine = self.render_core(
             rays_o, rays_d, z_vals, sample_dist,
+            conditional_volume, conditional_volume_mask,
             bg_rgb=bg_rgb, bg_alpha=bg_alpha, bg_sampled_color=bg_sampled_color,
             cos_anneal_ratio=cos_anneal_ratio
         )
@@ -148,14 +147,16 @@ class Renderer(nn.Module):
         
         return {
             'color_fine': ret_fine['color'],
-            's_val': ret_fine['s_val'].reshape(B, n_samples).mean(dim=-1, keepdim=True),
+            's_val': ret_fine['s_val'].reshape(N_rays, n_samples).mean(dim=-1, keepdim=True),
             'cdf_fine': ret_fine['cdf'],
             'weight_sum': weights_sum,
             'weight_max': weight_max,
             'gradients': ret_fine['gradients'],
             'weights': weights,
             'gradient_error': ret_fine['gradient_error'],
-            'inside_sphere': ret_fine['inside_sphere']
+            'inside_sphere': ret_fine['inside_sphere'],
+            'conditional_volume': conditional_volume,
+            'conditional_volume_mask': conditional_volume_mask,
         }
     
 
@@ -165,6 +166,9 @@ class Renderer(nn.Module):
         """
         batch_size, n_samples = z_vals.shape
         pts = rays_o[:, None, :] + rays_d[:, None, :] * z_vals[..., :, None]  # n_rays, n_samples, 3
+        
+        # NOTE: THEY APPLY MASKING AS WELL, CHECK IT!
+
         # Calculate the norm of points 
         radius = torch.linalg.norm(pts, ord=2, dim=-1, keepdim=False)
         # Check if the points are inside the unit sphere
@@ -211,7 +215,11 @@ class Renderer(nn.Module):
         return z_samples
     
 
-    def cat_z_vals(self, rays_o, rays_d, z_vals, new_z_vals, sdf, last=False):
+    def cat_z_vals(self, rays_o, rays_d, z_vals, new_z_vals, 
+                   sdf, conditional_volume, last=False):
+        
+        # NOTE: THEY APPLY MASKING AS WELL, CHECK IT!
+
         batch_size, n_samples = z_vals.shape
         _, n_importance = new_z_vals.shape
         pts = rays_o[:, None, :] + rays_d[:, None, :] * new_z_vals[..., :, None]
@@ -219,7 +227,9 @@ class Renderer(nn.Module):
         z_vals, index = torch.sort(z_vals, dim=-1)
 
         if not last:
-            new_sdf = self.sdf_net.sdf(pts.reshape(-1, 3)).reshape(batch_size, n_importance)
+            new_sdf_output = self.sdf_net.sdf(pts.reshape(-1, 3), conditional_volume)
+            new_sdf = new_sdf_output['sdf_pts'].reshape(batch_size, n_importance)
+
             sdf = torch.cat([sdf, new_sdf], dim=-1)
             xx = torch.arange(batch_size)[:, None].expand(batch_size, n_samples + n_importance).reshape(-1)
             index = index.reshape(-1)
@@ -229,6 +239,7 @@ class Renderer(nn.Module):
     
 
     def render_core(self, rays_o, rays_d, z_vals, sample_dist,
+                    conditional_volume, conditional_volume_mask,
                     bg_alpha=None, bg_sampled_color=None, bg_rgb=None,
                     cos_anneal_ratio=0.0):
         
@@ -247,11 +258,11 @@ class Renderer(nn.Module):
         dirs = dirs.reshape(-1, 3)
 
         # Calculate the SDF for points
-        sdf_nn_output = self.sdf_net(pts)
-        sdf = sdf_nn_output[:, :1]
-        feature_vector = sdf_nn_output[:, 1:]
+        sdf_nn_output = self.sdf_net.sdf(pts, conditional_volume)
+        sdf = sdf_nn_output['sdf_pts']
+        feature_vector = sdf_nn_output['sdf_features_pts']
 
-        gradients = self.sdf_net.gradient(pts).squeeze()
+        gradients = self.sdf_net.gradient(pts, conditional_volume).squeeze()
 
         # Get color values for points
         sampled_color = self.color_net(pts, gradients, dirs, feature_vector).reshape(B, N, 3)
@@ -421,11 +432,7 @@ class Renderer(nn.Module):
         pts_samples = []
 
         # * use fused pyramid feature maps are very important
-        if self.compress_layer is not None:
-            feats = self.compress_layer(feature_maps)
-        else:
-            feats = feature_maps[0]
-        feats = feats[:, None, :, :, :]  # [V, B, C, H, W]
+        feats = self.compress_layer(feature_maps)[:, None, :, :, :]  # [V, B, C, H, W]
 
         KRcam = proj_mats.permute(1, 0, 2, 3).contiguous()  # [V, B, 4, 4]
         interval = 1
@@ -455,8 +462,6 @@ class Renderer(nn.Module):
 
         del multiview_features, multiview_masks
 
-        feat = volume
-
         # batch index is in the last position
         r_coords = up_coords[:, [1, 2, 3, 0]]
 
@@ -464,8 +469,11 @@ class Renderer(nn.Module):
         #     torch.int32))  # - directly use sparse tensor to avoid point2voxel operations
         # sparse_feat = SparseConvNetTensor(feat, metadata=None, spatial_size=None)
 
+        if r_coords.shape[0] == 0:
+            breakpoint()
+
         sparse_feat = SparseConvTensor(
-            features=feat,
+            features=volume,
             indices=r_coords.to(torch.int32),
             spatial_shape=self.vol_dims,
             batch_size=1
@@ -478,7 +486,22 @@ class Renderer(nn.Module):
 
         outputs['dense_volume'] = dense_volume
         outputs['valid_mask_volume'] = valid_mask_volume
-        outputs['visible_mask'] = valid_mask_volume
+        # outputs['visible_mask'] = valid_mask_volume
         outputs['coords'] = generate_grid(self.vol_dims, interval).to(device)
 
         return outputs
+    
+    def get_conditional_volume(self, imgs, ref_poses):
+        img_size = imgs.shape[-2:]
+
+        features = self.compute_features(imgs)
+
+        conditional_volume_output = self.compute_volume(
+            features, ref_poses['partial_vol_origin'].to(features.device), 
+            ref_poses['proj_mats'].to(features.device), img_size
+        )
+
+        conditional_volume = conditional_volume_output['dense_volume']
+        conditional_volume_mask = conditional_volume_output['valid_mask_volume']
+
+        return conditional_volume, conditional_volume_mask

@@ -122,13 +122,13 @@ def main(config):
     for epoch in range(config.epochs):
         for data in loader:
 
-            trainer.step(data)
+            cond_volume, cond_volume_mask = trainer.step(data)
             if global_step % config.log_every == 0:
                 trainer.log(global_step, epoch)
             global_step += 1
 
         if epoch % config.save_every == 0:
-            trainer.save_model(epoch)
+            trainer.save_model(epoch, cond_volume, cond_volume_mask)
 
         if epoch % config.valid_every == 0:
             trainer.validate(valid_loader, rander_shape, step=global_step, epoch=epoch, 

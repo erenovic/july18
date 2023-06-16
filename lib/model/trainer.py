@@ -120,12 +120,18 @@ class Trainer(nn.Module):
         )
 
         # Step 2 : Compute conditional volume and mask
-        conditional_volume, conditional_volume_mask = self.renderer.get_conditional_volume(imgs, ref_poses)
+        feature_maps = self.renderer.compute_features(imgs)
+        conditional_volume, conditional_volume_mask = self.renderer.get_conditional_volume(imgs, ref_poses, feature_maps)
 
         # Step 3 : Predict radiance and volume density at the sampled points
+        img_size = imgs.shape[-2:]
+        sizeH, sizeW = img_size[0], img_size[1]
+
+        breakpoint()
         output = self.renderer(
             points, ray_orig, ray_dir, z_vals, sample_dist, 
-            bg_rgb, conditional_volume, conditional_volume_mask
+            bg_rgb, conditional_volume, conditional_volume_mask, ref_poses=ref_poses, img_wh=[sizeW, sizeH],
+            feature_maps=feature_maps, color_maps=imgs[0]
         )
 
         return output
@@ -175,6 +181,8 @@ class Trainer(nn.Module):
 
         full_imgs = data['full_imgs'].to(self.device)
         ref_poses = data['ref_poses']
+
+        # breakpoint()
 
         bg_rgb = torch.zeros([1, 3]).type(torch.float32).to(self.device)
 
@@ -301,7 +309,7 @@ class Trainer(nn.Module):
             rays = data['rays'].to(self.device)          # [1, Nr, 6]
             img_gt = data['imgs'].to(self.device)        # [1, Nr, 3]
             # mask = data['masks'].repeat(1, 1, 3).to(self.device)
-
+            #TODO: add data['ref_poses']['query_c2w'] to be used for projector in validation
             _rays = torch.split(rays, int(chunk_size), dim=1)
             pixels = []
             for _r in _rays:

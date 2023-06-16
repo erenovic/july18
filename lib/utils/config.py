@@ -97,6 +97,7 @@ def parse_options():
     model.add_argument('--sdf_net', type=dict, default=dict())
     model.add_argument('--var_net', type=dict, default=dict())
     model.add_argument('--color_net', type=dict, default=dict())
+    model.add_argument('--rendering_network', type=dict, default=dict())
 
    ###################
     # Arguments for validation

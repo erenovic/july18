@@ -77,6 +77,12 @@ model:
       log_sampling: True
       include_input: True
       input_dim: 3
+  
+  rendering_network:
+    in_geometry_feat_ch: 8     #was 16
+    in_rendering_feat_ch: 56   #was 56
+    anti_alias_pooling: True
+  
 
 validation:
   valid_every: 100
@@ -87,5 +93,5 @@ validation:
   save_img: True
 
 wandb:
-  wandb: True
+  wandb: False
   wandb_name: 'mp'

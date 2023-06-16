@@ -7,11 +7,13 @@ import torch.nn.functional as F
 import numpy as np
 
 # from nerf import NeRF
+from .rendering_network import GeneralRenderingNetwork
 from .sdf_network import SDFNetwork
 from .variance_net import SingleVarianceNetwork
 from .color_net import ColorNetwork
 from .feature_net import ConvBnReLU, FeatureNet
 from .sparse_conv_net import SparseCostRegNet
+from .projector import Projector
 # from .sparseconvnet import SparseConvNetTensor
 
 from spconv.pytorch import SparseConvTensor
@@ -72,8 +74,13 @@ class Renderer(nn.Module):
         self.feat_extractor = FeatureNet()
         self.sdf_net = SDFNetwork(config.sdf_net)
         self.var_net = SingleVarianceNetwork(config.var_net)
-        self.color_net = ColorNetwork(config.color_net)
-
+        self.color_net = ColorNetwork(config.color_net)                 #NOTE:should be obsolete now that we are using rendering network
+        self.rendering_net = GeneralRenderingNetwork(
+            config.rendering_network["in_geometry_feat_ch"],
+            config.rendering_network["in_rendering_feat_ch"],
+            config.rendering_network["anti_alias_pooling"]
+            )
+        self.rendering_projector = Projector()
         # Use fused pyramid feature maps are very important
         self.compress_layer = ConvBnReLU(
             ch_in=56, ch_out=16, kernel=3, stride=1, padding=1
@@ -93,7 +100,8 @@ class Renderer(nn.Module):
 
 
     def forward(self, pts, rays_o, rays_d, z_vals, sample_dist, bg_rgb=None, 
-                conditional_volume=None, conditional_volume_mask=None, cos_anneal_ratio=0.0):
+                conditional_volume=None, conditional_volume_mask=None, cos_anneal_ratio=0.0, ref_poses=None, 
+                img_wh=None, feature_maps=None,color_maps=None):
         '''
         Rendering along the rays provided.
         :rays_o: origin point of the rays,
@@ -138,7 +146,13 @@ class Renderer(nn.Module):
             rays_o, rays_d, z_vals, sample_dist,
             conditional_volume, conditional_volume_mask,
             bg_rgb=bg_rgb, bg_alpha=bg_alpha, bg_sampled_color=bg_sampled_color,
-            cos_anneal_ratio=cos_anneal_ratio
+            cos_anneal_ratio=cos_anneal_ratio,
+            ref_poses=ref_poses,
+            img_wh=img_wh,
+            feature_maps=feature_maps,
+            color_maps=color_maps,
+            if_general_rendering=True,
+            if_render_with_grad=True
         )
 
         weights = ret_fine['weights']
@@ -241,7 +255,9 @@ class Renderer(nn.Module):
     def render_core(self, rays_o, rays_d, z_vals, sample_dist,
                     conditional_volume, conditional_volume_mask,
                     bg_alpha=None, bg_sampled_color=None, bg_rgb=None,
-                    cos_anneal_ratio=0.0):
+                    cos_anneal_ratio=0.0, ref_poses=None, feature_maps=None,
+                    color_maps=None, query_c2w=None, img_wh=None, if_general_rendering=True,
+                     if_render_with_grad=True):
         
         B, N = z_vals.shape
 
@@ -252,11 +268,12 @@ class Renderer(nn.Module):
 
         # Section midpoints are the points to consider for SDF
         pts = rays_o[:, None, :] + rays_d[:, None, :] * mid_z_vals[..., :, None]  # n_rays, n_samples, 3
+        N_rays, n_samples, _ = pts.shape
         dirs = rays_d[:, None, :].expand(pts.shape)
 
         pts = pts.reshape(-1, 3)
         dirs = dirs.reshape(-1, 3)
-
+       
         # Calculate the SDF for points
         sdf_nn_output = self.sdf_net.sdf(pts, conditional_volume)
         sdf = sdf_nn_output['sdf_pts']
@@ -265,7 +282,36 @@ class Renderer(nn.Module):
         gradients = self.sdf_net.gradient(pts, conditional_volume).squeeze()
 
         # Get color values for points
-        sampled_color = self.color_net(pts, gradients, dirs, feature_vector).reshape(B, N, 3)
+        # sampled_color = self.color_net(pts, gradients, dirs, feature_vector).reshape(B, N, 3)
+
+        #NOTE: added by Elias
+        if if_general_rendering:  # used for general training
+            ren_geo_feats, ren_rgb_feats, ren_ray_diff, ren_mask, _, _ = self.rendering_projector.compute(
+                pts.view(N_rays, n_samples, 3),
+                # * 3d geometry feature volumes
+                geometryVolume=conditional_volume[0],
+                geometryVolumeMask=conditional_volume_mask[0],        #was conditional_valid_mask_volume[0]
+                # * 2d rendering feature maps
+                rendering_feature_maps=feature_maps,
+                color_maps=color_maps,
+                w2cs=ref_poses['w2cs'][0],                       #not sure
+                intrinsics=ref_poses['intrinsics'][0],           #not sure
+                img_wh=img_wh,
+                query_img_idx=0,  # the index of the N_views dim for rendering  #not sure if it is fine to use 0
+                query_c2w=query_c2w,        #not sure abt this
+            )
+
+            # (N_rays, n_samples, 3)
+            if if_render_with_grad:
+                breakpoint()
+                sampled_color, rendering_valid_mask = self.rendering_net(
+                    ren_geo_feats, ren_rgb_feats, ren_ray_diff, ren_mask)
+            else:
+                with torch.no_grad():
+                    sampled_color, rendering_valid_mask = self.rendering_net(
+                        ren_geo_feats, ren_rgb_feats, ren_ray_diff, ren_mask)
+        else:
+            sampled_color, rendering_valid_mask = None, None
 
         inv_s = self.var_net(torch.zeros([1, 3]).to(rays_o.device))[:, :1].clip(1e-6, 1e6)           # Single parameter
         inv_s = inv_s.expand(B * N, 1)
@@ -491,10 +537,10 @@ class Renderer(nn.Module):
 
         return outputs
     
-    def get_conditional_volume(self, imgs, ref_poses):
+    def get_conditional_volume(self, imgs, ref_poses, features):
         img_size = imgs.shape[-2:]
 
-        features = self.compute_features(imgs)
+        # features = self.compute_features(imgs)
 
         conditional_volume_output = self.compute_volume(
             features, ref_poses['partial_vol_origin'].to(features.device), 

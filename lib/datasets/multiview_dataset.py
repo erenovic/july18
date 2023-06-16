@@ -137,36 +137,57 @@ class MultiviewDataset(Dataset):
     
     def compute_camera_params(self):
         self.data['ref_poses'] = dict()
-        # all_extr = torch.zeros((self.num_imgs, 3, 4))
-        # all_intr = torch.zeros((self.num_imgs, 3, 3))
+        all_extr = torch.zeros((self.num_imgs, 3, 4))
+        all_intr = torch.zeros((self.num_imgs, 3, 3))
         all_near_far = torch.zeros((self.num_imgs, 2))
-        # w2cs = torch.zeros((self.num_imgs, 4, 4))
-        # c2ws = torch.zeros((self.num_imgs, 4, 4))
+        w2cs = torch.zeros((self.num_imgs, 4, 4))
+        c2ws = torch.zeros((self.num_imgs, 4, 4))
         affine_mats = torch.zeros((self.num_imgs, 4, 4))
         for i, (k, v) in enumerate(self.data['cameras'].items()):
-
+            
             all_near_far[i] = torch.tensor([0., 6.])
+            extr = v.extrinsics.view_matrix()
+            intr = v.intrinsics.projection_matrix()
 
             if self.split == "train":
-                extr = v.extrinsics.view_matrix()
-                intr = v.intrinsics.projection_matrix()
+                # extr = v.extrinsics.view_matrix()
+                # intr = v.intrinsics.projection_matrix()
 
-                # extr = extr.reshape(4, 4)[:3, :]
+                # extr = extr.reshape(4, 4)[:3, :]                  #NOTE: why is it commented out?
                 # intr = torch.tensor([[intr[0][2], 0, intr[0][0]],
                 #                      [0, intr[0][3], intr[0][1]],
                 #                      [0, 0, 1]])
+                # breakpoint()
                 intr[0, :, :2] /= self.down_factor
 
                 affine_mats[i] = torch.bmm(intr, extr)[0]
             else:
-                affine_mats[i] = v.view_projection_matrix()[0]
-                
-            # all_extr[i] = extr
+                extr = v.extrinsics.view_matrix()
+                intr = v.intrinsics.projection_matrix()
+                affine_mats[i] = v.view_projection_matrix()[0]      
+            
+            # all_extr[i] = extr        NOTE:why is it commented out?(all_extr and all_intr)
             # all_intr[i] = intr
+
+            all_intr[i] = torch.tensor([[intr[0][2][2], 0, intr[0][0][0]],      #not sure about this at all
+                                     [0, intr[0][3][2], intr[0][1][1]],
+                                     [0, 0, 1]])
             # Default values from load_nerf_standard_data()
             
-            ###########################################################
+            ##########################################################
             # PART RELEVANT FOR SPARSENEUS
+            w2c = extr
+            c2w = np.linalg.inv(w2c)
+            # all_intr_two = load_K_Rt_from_P(None, affine_mats[i][:3,:].numpy())[0]
+            # c2w = load_K_Rt_from_P(None, affine_mats[i][:3,:].numpy())[1]
+            # w2c = np.linalg.inv(c2w)
+            # breakpoint()
+            w2cs[i] = torch.tensor(w2c)
+            c2ws[i] = torch.tensor(c2w)
+
+            # w2c_ref = self.all_extrinsics[self.remap[ref_view]]
+            # w2c_ref_inv = np.linalg.inv(w2c_ref)
+            
             # w2c = extr @ w2c_ref_inv
 
             # # NOTE: Removed calculate scale mat!
@@ -182,14 +203,14 @@ class MultiviewDataset(Dataset):
             # affine_mat = np.eye(4)
             # affine_mat[:3, :4] = intr[:3, :3] @ w2c[:3, :4]
             # affine_mats[i] = v.parameters()[0].reshape(4, 4)
-            ###########################################################
+            ##########################################################
             
         # self.data['ref_poses']['extrinsics'] = all_extr
-        # self.data['ref_poses']['intrinsics'] = all_intr
+        self.data['ref_poses']['intrinsics'] = all_intr
         # self.data['ref_poses']['near_fars'] = all_near_far
 
-        # self.data['ref_poses']['w2cs'] = w2cs
-        # self.data['ref_poses']['c2ws'] = c2ws
+        self.data['ref_poses']['w2cs'] = w2cs
+        self.data['ref_poses']['c2ws'] = c2ws
         self.data['ref_poses']['proj_mats'] = affine_mats
 
         # NOTE: Not sure if this is the right value! Based on SparseNeuS
